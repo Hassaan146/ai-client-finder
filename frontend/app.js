@@ -78,6 +78,7 @@ function wireDropdown(ddId, headId, menuId, summaryFn) {
   return () => head.textContent = summaryFn();
 }
 document.addEventListener("click", () => document.querySelectorAll(".dd.open").forEach(d => d.classList.remove("open")));
+document.addEventListener("keydown", e => { if (e.key === "Escape") document.querySelectorAll(".dd.open").forEach(d => d.classList.remove("open")); });
 
 const countSummary = (menuId, empty) => () => {
   const sel = checkedVals($(menuId));
@@ -109,55 +110,88 @@ async function initDropdowns() {
 }
 initDropdowns();
 
+// ── UI feedback helpers ─────────────────────────────────────────────────────
+function setStep(n) {  // 1..4 — mark earlier steps done, current active
+  [...$("steps").children].forEach((li, i) => {
+    li.classList.toggle("done", i < n - 1);
+    li.classList.toggle("active", i === n - 1);
+  });
+}
+function formError(msg) { $("form-error").textContent = msg || ""; }
+function copyBtn(cls, label, getText) {  // copy with visible confirmation (closure/feedback)
+  const b = el("button", cls, label);
+  b.onclick = async () => {
+    try { await navigator.clipboard.writeText(getText()); } catch (e) { /* http fallback below */ }
+    const old = b.textContent; b.textContent = "Copied ✓"; b.disabled = true;
+    setTimeout(() => { b.textContent = old; b.disabled = false; }, 1400);
+  };
+  return b;
+}
+const fitBand = s => s >= 7 ? "fit-hi" : s >= 4 ? "fit-mid" : "fit-lo";
+
 // ── flow ────────────────────────────────────────────────────────────────────
 $("btn-start").onclick = async () => {
+  formError("");
   const lead_types = checkedVals($("menu-types"));
-  if (!lead_types.length) { alert("Pick at least one 'What to find' option"); return; }
+  if (!lead_types.length) { formError("Pick at least one “What to find” option."); return; }
   const body = {
     service: checkedVals($("menu-service")), niche: checkedVals($("menu-niche")),
     location: checkedVals($("menu-location")), notes: $("notes").value.trim(),
     max_leads: parseInt($("max_leads").value) || 8,
     lead_types, sources: checkedVals($("menu-sources")),
   };
-  if (!body.service.length || !body.niche.length) { alert("Pick (or add) at least one Service and one Niche"); return; }
+  if (!body.service.length || !body.niche.length) { formError("Pick (or add) at least one Service and one Niche."); return; }
   $("btn-start").disabled = true;
   try {
     const r = await fetch("/api/runs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     if (!r.ok) throw new Error((await r.json()).detail || r.status);
     runId = (await r.json()).id;
+    setStep(2);
     $("p-plan").classList.remove("hide"); $("plan-status").textContent = "(planning…)";
     $("p-plan").scrollIntoView({ behavior: "smooth" });
     poll = setInterval(tick, 2000);
-  } catch (e) { alert("Error: " + e.message); $("btn-start").disabled = false; }
+  } catch (e) { formError("Error: " + e.message); $("btn-start").disabled = false; }
 };
 
 $("btn-approve").onclick = async () => {
   $("btn-approve").disabled = true;
   const r = await fetch(`/api/runs/${runId}/approve`, { method: "POST" });
-  if (!r.ok) { alert("approve failed"); $("btn-approve").disabled = false; return; }
+  if (!r.ok) { formError("Approve failed — try again."); $("btn-approve").disabled = false; return; }
+  setStep(3);
   $("p-progress").classList.remove("hide"); $("p-progress").scrollIntoView({ behavior: "smooth" });
 };
 
 $("btn-reject").onclick = () => {
   clearInterval(poll); runId = null;
-  $("p-plan").classList.add("hide"); $("btn-start").disabled = false; window.scrollTo(0, 0);
+  setStep(1);
+  $("p-plan").classList.add("hide"); $("p-progress").classList.add("hide");
+  $("plan-body").textContent = ""; $("cards").textContent = "";
+  $("btn-start").disabled = false; window.scrollTo({ top: 0, behavior: "smooth" });
 };
+
+let lastCardCount = -1;
 
 async function tick() {
   if (!runId) return;
   const r = await fetch(`/api/runs/${runId}`); if (!r.ok) return;
   const d = await r.json();
-  $("run-status").textContent = d.status;
+  $("run-status").textContent = d.status.replace("_", " ");
   $("log").textContent = (d.log || []).join("\n"); $("log").scrollTop = 1e9;
   if (d.plan && $("plan-body").childElementCount === 0) renderPlan(d.plan);
-  $("plan-status").textContent = d.status === "plan_ready" ? "(awaiting your approval)" : `(${d.status})`;
+  $("plan-status").textContent = d.status === "plan_ready" ? "(awaiting your approval)" : `(${d.status.replace("_", " ")})`;
   $("btn-approve").disabled = d.status !== "plan_ready";
   if (d.status === "done" || d.status === "failed") {
     clearInterval(poll);
-    if (d.status === "failed") { $("log").textContent += "\nERROR: " + d.error; $("run-status").classList.add("err"); }
-    renderCards(d.cards || []);
+    $("spinner").classList.add("hide");
+    const st = $("run-status");
+    st.classList.toggle("err", d.status === "failed");
+    st.classList.toggle("ok", d.status === "done");
+    if (d.status === "failed") $("log").textContent += "\nERROR: " + d.error;
+    if (d.status === "done") setStep(4);
+    lastCardCount = -1; renderCards(d.cards || [], d.status);
   } else if (["sourcing", "ranking", "diagnosing"].includes(d.status)) {
-    $("p-progress").classList.remove("hide"); renderCards(d.cards || []);
+    $("p-progress").classList.remove("hide");
+    renderCards(d.cards || [], d.status);   // stream cards in as they finish
   }
 }
 
@@ -175,64 +209,93 @@ function renderPlan(p) {
   }
 }
 
-function renderCards(cards) {
+function renderCards(cards, status) {
+  // don't rebuild (and wipe open <details>) unless something actually changed
+  if (cards.length === lastCardCount) return;
+  lastCardCount = cards.length;
   const box = $("cards"); box.textContent = "";
-  if (!cards.length) return;
-  box.appendChild(el("p", "cardT", `Ranked leads (${cards.length})`));
+  if (!cards.length) {
+    if (status === "done") box.appendChild(el("p", "empty", "Run finished but produced no cards — try a broader niche or more locations."));
+    return;
+  }
+  const head = el("p", "cardT", `Ranked leads (${cards.length})`);
+  box.appendChild(head);
   cards.forEach(c => {
-    const p = el("div", "panel");
+    const p = el("div", "panel lead");
     if (c.priority) p.classList.add("priority");
-    const h = el("p", "cardT");
+
+    // ── header: rank · title · fit meter · source ──
+    const h = el("div", "lead-head");
     h.appendChild(el("span", "badge rank", "#" + c.rank));
+    h.appendChild(el("span", "lead-title", c.title));
     if (c.priority) h.appendChild(el("span", "badge first", "★ CONTACT FIRST"));
-    h.appendChild(document.createTextNode(" " + c.title + " "));
-    h.appendChild(el("span", "badge score", (c.fit_score || 0).toFixed(0) + "/10"));
-    h.appendChild(el("span", "badge tier", c.source + "·" + c.tier));
+    const score = c.fit_score || 0;
+    const fit = el("span", "badge fit " + fitBand(score), "fit " + score.toFixed(0) + "/10");
+    const meter = el("span", "meter"); const bar = el("i");
+    bar.style.width = Math.min(score * 10, 100) + "%"; meter.appendChild(bar); fit.appendChild(meter);
+    h.appendChild(fit);
+    h.appendChild(el("span", "badge src", c.source + " · " + c.tier));
     p.appendChild(h);
-    if (c.fit_reason) p.appendChild(el("div", "kv", "why ranked here: " + c.fit_reason));
+
+    if (c.fit_reason) p.appendChild(el("div", "kv", "Why ranked here: " + c.fit_reason));
     if (c.url) { const a = el("a", "", c.url); a.href = c.url; a.target = "_blank"; a.rel = "noopener noreferrer"; p.appendChild(a); }
 
-    // ── prominent CONTACT block ──
-    const cs = el("div", "sec contact");
+    // ── contact block: the action zone, always visible ──
+    const cs = el("div", "contact");
     cs.appendChild(el("b", "", "Contact"));
     if (c.person || c.role) cs.appendChild(el("div", "kv", "👤 " + [c.person, c.role].filter(Boolean).join(" — ")));
     if (c.email) {
       const row = el("div", "contact-email");
-      const dot = el("span", "estat estat-" + (c.email_status || "unverified"));
-      row.appendChild(dot);
+      row.appendChild(el("span", "estat estat-" + (c.email_status || "unverified")));
       const a = el("a", "", c.email); a.href = "mailto:" + c.email; row.appendChild(a);
-      row.appendChild(el("span", "kv", " (" + (c.email_status || "unverified") + ")"));
-      const cp = el("button", "ghost mini", "copy"); cp.onclick = () => navigator.clipboard.writeText(c.email);
-      row.appendChild(cp);
+      row.appendChild(el("span", "kv", "(" + (c.email_status || "unverified") + ")"));
+      row.appendChild(copyBtn("ghost mini", "Copy", () => c.email));
       cs.appendChild(row);
-    } else { cs.appendChild(el("div", "kv", "no email found — try the website / socials below")); }
-    if (c.phone) cs.appendChild(el("div", "kv", "📞 " + c.phone));
+    } else { cs.appendChild(el("div", "kv", "No email found — try the website / socials below.")); }
+    if (c.phone) { const t = el("div", "kv"); const a = el("a", "", c.phone); a.href = "tel:" + c.phone.replace(/[^\d+]/g, ""); t.append("📞 ", a); cs.appendChild(t); }
     (c.socials || []).forEach(s => { const a = el("a", "kv-a", s); a.href = s; a.target = "_blank"; a.rel = "noopener noreferrer"; cs.appendChild(a); });
     p.appendChild(cs);
-    const an = c.analysis || {};
-    if (an.requirement) { const s = el("div", "sec"); s.appendChild(el("b", "", "Requirement")); s.appendChild(el("div", "", an.requirement)); p.appendChild(s); }
-    if (an.analyzer) { const s = el("div", "sec"); s.appendChild(el("b", "", "Analyzer — what they want")); s.appendChild(el("div", "", an.analyzer)); p.appendChild(s); }
-    if (an.problems && an.problems.length) {
-      const s = el("div", "sec"); s.appendChild(el("b", "", "Problems"));
-      const ul = el("ul"); an.problems.forEach(x => ul.appendChild(el("li", "", (x.problem || "") + (x.evidence ? " (evidence: " + x.evidence + ")" : "")))); s.appendChild(ul); p.appendChild(s);
-    }
-    if (an.solutions && an.solutions.length) {
-      const s = el("div", "sec"); s.appendChild(el("b", "", "Solutions & impact"));
-      const ul = el("ul"); an.solutions.forEach(x => ul.appendChild(el("li", "", (x.solution || "") + " → " + (x.impact || "") + " — " + (x.why_it_matters || "")))); s.appendChild(ul); p.appendChild(s);
-    }
-    if (an.disclaimer) p.appendChild(el("div", "kv", an.disclaimer));
+
+    // ── outreach: the deliverable, visible with one-click copy ──
     const o = c.outreach || {};
     if (o.message) {
       const s = el("div", "sec");
-      s.appendChild(el("b", "", "Outreach (" + (o.genre || "") + " · " + (o.channel || "") + ")"));
+      s.appendChild(el("b", "", "Outreach (" + [o.genre, o.channel].filter(Boolean).join(" · ") + ")"));
       if (o.why_this_genre) s.appendChild(el("div", "kv", o.why_this_genre));
-      if (o.subject) s.appendChild(el("div", "kv", "subject: " + o.subject));
+      if (o.subject) s.appendChild(el("div", "subject", "Subject: " + o.subject));
       s.appendChild(el("div", "msg", o.message));
-      const btn = el("button", "ghost", "Copy message");
-      btn.onclick = () => navigator.clipboard.writeText((o.subject ? o.subject + "\n\n" : "") + o.message);
-      s.appendChild(btn); p.appendChild(s);
+      s.appendChild(copyBtn("ghost", "Copy message", () => (o.subject ? o.subject + "\n\n" : "") + o.message));
+      p.appendChild(s);
     }
-    if (c.validator_notes && c.validator_notes.length) p.appendChild(el("div", "kv", "validators: " + c.validator_notes.join(" | ")));
+
+    // ── analysis: supporting detail, collapsed by default (progressive disclosure) ──
+    const an = c.analysis || {};
+    if (an.requirement || an.analyzer || (an.problems || []).length || (an.solutions || []).length) {
+      const det = document.createElement("details");
+      const sum = document.createElement("summary");
+      sum.textContent = "Why this lead — analysis" + (an.confidence ? " (confidence: " + an.confidence + ")" : "");
+      det.appendChild(sum);
+      if (an.requirement) { const s = el("div", "sec"); s.appendChild(el("b", "", "Requirement")); s.appendChild(el("div", "", an.requirement)); det.appendChild(s); }
+      if (an.analyzer) { const s = el("div", "sec"); s.appendChild(el("b", "", "What they want")); s.appendChild(el("div", "", an.analyzer)); det.appendChild(s); }
+      if (an.problems && an.problems.length) {
+        const s = el("div", "sec"); s.appendChild(el("b", "", "Problems"));
+        const ul = el("ul"); an.problems.forEach(x => ul.appendChild(el("li", "", (x.problem || "") + (x.evidence ? " (evidence: " + x.evidence + ")" : "")))); s.appendChild(ul); det.appendChild(s);
+      }
+      if (an.solutions && an.solutions.length) {
+        const s = el("div", "sec"); s.appendChild(el("b", "", "Solutions & impact"));
+        const ul = el("ul"); an.solutions.forEach(x => ul.appendChild(el("li", "", (x.solution || "") + " → " + (x.impact || "") + " — " + (x.why_it_matters || "")))); s.appendChild(ul); det.appendChild(s);
+      }
+      if (an.disclaimer) det.appendChild(el("div", "kv", an.disclaimer));
+      p.appendChild(det);
+    }
+
+    if (c.validator_notes && c.validator_notes.length) {
+      const det = document.createElement("details");
+      const sum = document.createElement("summary"); sum.textContent = "Validator notes (" + c.validator_notes.length + ")";
+      det.appendChild(sum);
+      const ul = el("ul"); c.validator_notes.forEach(n => ul.appendChild(el("li", "", n))); det.appendChild(ul);
+      p.appendChild(det);
+    }
     box.appendChild(p);
   });
 }

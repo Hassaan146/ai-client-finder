@@ -5,57 +5,140 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI Client/Lead Finder</title>
 <style>
-  :root{--bg:#0f1115;--card:#181b22;--line:#2a2f3a;--txt:#e8eaf0;--dim:#9aa3b2;--acc:#4f8cff;--ok:#3fbf6f;--warn:#e0a23c}
-  *{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
-  .wrap{max-width:980px;margin:0 auto;padding:24px}
-  h1{font-size:22px;margin:0 0 4px}.sub{color:var(--dim);margin:0 0 20px}
-  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
-  label{display:block;font-size:12px;color:var(--dim);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.04em}
-  input,textarea{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:#10131a;color:var(--txt);font:inherit}
-  button{padding:10px 18px;border-radius:8px;border:0;background:var(--acc);color:#fff;font:600 14px/1 inherit;cursor:pointer;margin-top:14px}
+  /* ── tokens: 8px spacing system, 1.25 type scale (13/16/20/25), WCAG-checked colors ── */
+  :root{
+    --bg:#0f1115; --card:#181b22; --card2:#10131a; --line:#2a2f3a;
+    --txt:#e8eaf0; --dim:#a7b0bf; --acc:#5b93ff; --acc-press:#3f7af0;
+    --ok:#41c777; --warn:#e8b04a; --bad:#ff7a7a; --gold:#f0b232;
+    --r:12px; --r-sm:8px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:16px/1.5 system-ui,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--txt)}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 24px 64px}
+  h1{font-size:25px;margin:0 0 4px;letter-spacing:-.01em}
+  .sub{color:var(--dim);margin:0 0 24px;font-size:16px}
+
+  /* stepper — always tells the user where they are (feedback / visibility of system status) */
+  .steps{display:flex;gap:8px;list-style:none;margin:0 0 24px;padding:0;counter-reset:step}
+  .steps li{flex:1;display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:var(--r-sm);
+            background:var(--card);border:1px solid var(--line);color:var(--dim);font-size:13px;min-width:0}
+  .steps li::before{counter-increment:step;content:counter(step);flex:none;width:22px;height:22px;
+            border-radius:99px;background:var(--card2);border:1px solid var(--line);
+            display:grid;place-items:center;font-weight:700;font-size:12px}
+  .steps li.active{border-color:var(--acc);color:var(--txt)}
+  .steps li.active::before{background:var(--acc);border-color:var(--acc);color:#fff}
+  .steps li.done{color:var(--dim)}
+  .steps li.done::before{content:"✓";background:var(--ok);border-color:var(--ok);color:#08130c}
+  .steps span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  @media(max-width:640px){.steps{flex-wrap:wrap}.steps li{flex:1 1 45%}}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px;margin-bottom:16px}
+  label{display:block;font-size:12px;color:var(--dim);margin:16px 0 6px;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+  input,textarea,select{width:100%;padding:10px 12px;border-radius:var(--r-sm);border:1px solid var(--line);
+            background:var(--card2);color:var(--txt);font:inherit;min-height:44px}
+  textarea{min-height:64px;resize:vertical}
+  :is(button,input,textarea,select,summary,a):focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:var(--r-sm)}
+
+  button{padding:0 20px;min-height:44px;border-radius:var(--r-sm);border:0;background:var(--acc);color:#fff;
+         font:600 15px/1 inherit;cursor:pointer;margin-top:16px;transition:background .15s,transform .15s}
+  button:hover{background:var(--acc-press)}
+  button:active{transform:translateY(1px)}
   button.ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
-  button:disabled{opacity:.5;cursor:wait}
-  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .hint{font-size:12px;color:var(--dim);margin-top:3px}
+  button.ghost:hover{background:var(--card2);color:var(--txt)}
+  button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+  button.mini{margin:0;padding:0 10px;min-height:28px;font-size:12px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:640px){.row{grid-template-columns:1fr}}
+  .form-error{color:var(--bad);font-size:14px;margin:10px 0 0;min-height:1.2em}
+
   /* dropdown */
   .dd{position:relative}
-  .dd-head{width:100%;text-align:left;padding:10px;border-radius:8px;border:1px solid var(--line);background:#10131a;color:var(--txt);cursor:pointer;margin:0;font:inherit}
-  .dd-head:after{content:"▾";float:right;color:var(--dim)}
-  .dd-menu{display:none;position:absolute;z-index:9;left:0;right:0;margin-top:4px;background:#10131a;border:1px solid var(--line);border-radius:8px;max-height:240px;overflow:auto;padding:6px}
+  .dd-head{width:100%;text-align:left;padding:10px 12px;border-radius:var(--r-sm);border:1px solid var(--line);
+           background:var(--card2);color:var(--txt);cursor:pointer;margin:0;font:inherit;min-height:44px}
+  .dd-head:hover{border-color:var(--acc)}
+  .dd-head::after{content:"▾";float:right;color:var(--dim)}
+  .dd.open .dd-head::after{content:"▴"}
+  .dd-menu{display:none;position:absolute;z-index:9;left:0;right:0;margin-top:4px;background:var(--card2);
+           border:1px solid var(--line);border-radius:var(--r-sm);max-height:260px;overflow:auto;padding:6px;
+           box-shadow:0 8px 24px rgb(0 0 0 / .45)}
   .dd.open .dd-menu{display:block}
-  .dd-menu label{display:flex;align-items:center;gap:8px;margin:0;padding:7px 8px;border-radius:6px;text-transform:none;letter-spacing:0;font-size:14px;color:var(--txt);cursor:pointer}
-  .dd-menu label:hover{background:#181b22}.dd-menu input[type=checkbox]{width:auto}
+  .dd-menu label{display:flex;align-items:center;gap:10px;margin:0;padding:8px 10px;border-radius:6px;
+                 text-transform:none;letter-spacing:0;font-size:14px;font-weight:400;color:var(--txt);cursor:pointer;min-height:36px}
+  .dd-menu label:hover{background:var(--card)}
+  .dd-menu input[type=checkbox]{width:16px;height:16px;min-height:0;accent-color:var(--acc);flex:none}
   .dd-menu .selall{border-bottom:1px solid var(--line);margin-bottom:4px;font-weight:700;color:var(--acc)}
-  .dd-custom{display:flex;gap:6px;padding:6px 8px;border-top:1px solid var(--line);margin-top:4px}
-  .dd-custom input{flex:1;padding:6px}.dd-custom button{margin:0;padding:6px 10px;font-size:13px}
-  .badge{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:700}
-  .score{background:var(--ok);color:#08130c}.rank{background:#252a35;color:var(--dim);margin-right:8px}
-  .tier{background:#252a35;color:var(--acc);margin-left:8px}
-  .first{background:#f0b232;color:#1a1200;margin-left:8px}
-  .panel.priority{border-color:#f0b232;box-shadow:0 0 0 1px #f0b23233}
-  .contact{background:#10131a;border-radius:8px;padding:10px}
-  .contact-email{display:flex;align-items:center;gap:8px;margin-top:4px;font-size:15px}
-  .estat{width:9px;height:9px;border-radius:99px;display:inline-block;flex:none}
-  .estat-valid{background:var(--ok)}.estat-risky{background:var(--warn)}
-  .estat-guessed{background:#7a86ff}.estat-invalid{background:#ff6b6b}.estat-unverified{background:#555}
-  button.mini{margin:0;padding:3px 8px;font-size:11px}
-  .kv-a{display:block;font-size:12px}
-  .log{font:12px/1.6 ui-monospace,Consolas,monospace;color:var(--dim);max-height:200px;overflow:auto;white-space:pre-wrap}
-  .cardT{font-size:16px;font-weight:700;margin:0}
-  .kv{color:var(--dim);font-size:13px;margin:2px 0}
-  .sec{margin-top:10px;border-top:1px dashed var(--line);padding-top:8px}
-  .sec b{font-size:12px;color:var(--acc);text-transform:uppercase;letter-spacing:.04em}
-  ul{margin:6px 0 0 18px;padding:0}li{margin:3px 0}
-  .msg{background:#10131a;border:1px solid var(--line);border-radius:8px;padding:10px;white-space:pre-wrap;font-size:14px;margin-top:6px}
-  .err{color:#ff7a7a}.hide{display:none}
+  .dd-custom{display:flex;gap:8px;padding:8px;border-top:1px solid var(--line);margin-top:4px}
+  .dd-custom input{flex:1;padding:6px 10px;min-height:36px}
+  .dd-custom button{margin:0;padding:0 12px;min-height:36px;font-size:13px}
+
+  /* badges + fit meter (color + text + width — never color alone) */
+  .badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700;line-height:1.4}
+  .rank{background:#252a35;color:var(--dim)}
+  .src{background:#252a35;color:var(--acc)}
+  .first{background:var(--gold);color:#1a1200}
+  .fit{gap:6px}
+  .fit-hi{background:var(--ok);color:#08130c}
+  .fit-mid{background:var(--warn);color:#1a1200}
+  .fit-lo{background:#3a4150;color:var(--txt)}
+  .meter{width:56px;height:5px;border-radius:99px;background:rgb(0 0 0 / .3);overflow:hidden;flex:none}
+  .meter i{display:block;height:100%;border-radius:99px;background:currentColor}
+
+  /* status + spinner */
   .status{font-weight:700;color:var(--warn)}
+  .status.err{color:var(--bad)} .status.ok{color:var(--ok)}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--acc);
+        border-radius:99px;animation:spin .8s linear infinite;vertical-align:-2px;margin-left:8px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media(prefers-reduced-motion:reduce){.spin{animation:none;border-top-color:var(--line)}*{transition:none!important}}
+
+  .log{font:12px/1.7 ui-monospace,Consolas,monospace;color:var(--dim);max-height:220px;overflow:auto;
+       white-space:pre-wrap;background:var(--card2);border-radius:var(--r-sm);padding:12px;margin-top:12px}
+
+  /* lead cards */
+  .cardT{font-size:20px;font-weight:700;margin:0}
+  .lead{transition:border-color .15s}
+  .lead:hover{border-color:#3a4150}
+  .lead.priority{border-color:var(--gold);box-shadow:0 0 0 1px rgb(240 178 50 / .25)}
+  .lead-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 6px}
+  .lead-title{font-size:20px;font-weight:700;margin-right:auto;min-width:40%}
+  .kv{color:var(--dim);font-size:14px;margin:2px 0}
+  .kv-a{display:block;font-size:13px}
+  .sec{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+  .sec>b{display:block;font-size:12px;color:var(--acc);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+  ul{margin:6px 0 0 18px;padding:0} li{margin:4px 0}
+
+  .contact{background:var(--card2);border-radius:var(--r-sm);padding:14px;margin-top:16px}
+  .contact-email{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:16px;flex-wrap:wrap}
+  .estat{width:9px;height:9px;border-radius:99px;display:inline-block;flex:none}
+  .estat-valid{background:var(--ok)} .estat-risky{background:var(--warn)}
+  .estat-guessed{background:#7a86ff} .estat-invalid{background:var(--bad)} .estat-unverified{background:#555}
+
+  details{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+  summary{cursor:pointer;font-size:12px;color:var(--acc);text-transform:uppercase;letter-spacing:.05em;
+          font-weight:700;list-style:none;display:flex;align-items:center;gap:6px;min-height:24px}
+  summary::before{content:"▸";transition:transform .15s}
+  details[open] summary::before{transform:rotate(90deg)}
+  summary:hover{color:var(--acc-press)}
+
+  .msg{background:var(--card2);border:1px solid var(--line);border-radius:var(--r-sm);padding:14px;
+       white-space:pre-wrap;font-size:15px;line-height:1.6;margin-top:8px}
+  .subject{font-weight:600;margin-top:8px}
+  .empty{color:var(--dim);text-align:center;padding:24px}
+  .err{color:var(--bad)} .hide{display:none}
   a{color:var(--acc);word-break:break-all}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>AI Client/Lead Finder</h1>
-  <p class="sub">requirements → plan (you approve) → multi-source hunt → validated, ranked flash cards</p>
+  <p class="sub">Describe what you sell → approve the hunt plan → get validated, ranked leads with ready-to-send outreach.</p>
+
+  <ol class="steps" id="steps">
+    <li class="active"><span>Requirements</span></li>
+    <li><span>Approve plan</span></li>
+    <li><span>Hunt &amp; analyze</span></li>
+    <li><span>Ranked leads</span></li>
+  </ol>
 
   <div class="panel" id="p-form">
     <div class="row">
@@ -88,6 +171,7 @@
 
     <label>Notes (optional)</label><textarea id="notes" rows="2" placeholder="anything else the planner should know"></textarea>
     <button id="btn-start">Build my plan</button>
+    <p class="form-error" id="form-error" role="alert"></p>
   </div>
 
   <div class="panel hide" id="p-plan">
@@ -98,8 +182,8 @@
   </div>
 
   <div class="panel hide" id="p-progress">
-    <p class="cardT">Run status: <span class="status" id="run-status">…</span></p>
-    <div class="log" id="log"></div>
+    <p class="cardT">Run status: <span class="status" id="run-status">…</span><span class="spin" id="spinner"></span></p>
+    <div class="log" id="log" aria-live="polite"></div>
   </div>
 
   <div id="cards"></div>
