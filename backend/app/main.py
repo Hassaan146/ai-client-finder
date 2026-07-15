@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -14,20 +15,34 @@ from .api.routes import misc, runs
 from .config import get_settings
 from .db.base import init_db
 
-app = FastAPI(title="AI Client/Lead Finder", docs_url="/api/docs", openapi_url="/api/openapi.json")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="AI Client/Lead Finder", docs_url="/api/docs",
+              openapi_url="/api/openapi.json", lifespan=_lifespan)
 settings = get_settings()
 
 app.add_middleware(CORSMiddleware, allow_origins=[settings.ALLOWED_ORIGIN],
                    allow_methods=["GET", "POST"], allow_headers=["content-type"])
 
-# simple in-memory per-IP limiter: 60 req/min general, 10/min run-creation
+# simple in-memory per-IP limiter: 120 req/min general, 10/min run-creation
 _hits: dict = defaultdict(list)
+_last_prune = 0.0
 
 
 @app.middleware("http")
 async def guard(request: Request, call_next):
+    global _last_prune
     ip = request.client.host if request.client else "?"
     now = time.time()
+    if now - _last_prune > 300:  # drop idle IP buckets so the dict can't grow forever
+        _last_prune = now
+        for k in [k for k, v in _hits.items() if not v or now - v[-1] > 60]:
+            _hits.pop(k, None)
     bucket = "runs" if (request.url.path == "/api/runs" and request.method == "POST") else "all"
     key = f"{ip}:{bucket}"
     _hits[key] = [t for t in _hits[key] if now - t < 60]
@@ -65,8 +80,3 @@ def app_js():
 
 app.include_router(runs.router)
 app.include_router(misc.router)
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    init_db()

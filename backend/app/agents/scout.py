@@ -31,8 +31,9 @@ def _plan_queries(plan: dict) -> List[str]:
 
 
 def run_scout(plan: dict, locations: Iterable[str] | str | None = None,
-              source_names: Iterable[str] | None = None):
-    """locations: list of cities (local adapters loop over them). source_names: explicit adapters."""
+              source_names: Iterable[str] | None = None) -> tuple[List[Candidate], dict]:
+    """locations: list of cities (local adapters loop over them). source_names: explicit adapters.
+    Returns (candidates, per-source result counts)."""
     if isinstance(locations, str):
         locations = [locations] if locations else []
     locs = [l for l in (locations or []) if l][:3]
@@ -65,8 +66,4 @@ def run_scout(plan: dict, locations: Iterable[str] | str | None = None,
                 per_source[futs[f]] += len(res)
             except Exception:  # noqa: BLE001
                 pass
-    run_scout.last_breakdown = dict(per_source)  # type: ignore[attr-defined]
-    return out
-
-
-run_scout.last_breakdown = {}  # type: ignore[attr-defined]
+    return out, dict(per_source)

@@ -7,3 +7,4 @@ python-dotenv>=1.0
 SQLAlchemy>=2.0
 httpx>=0.27
 ddgs>=9.0            # DuckDuckGo (no key)
+pytest>=8.0          # dev/test only

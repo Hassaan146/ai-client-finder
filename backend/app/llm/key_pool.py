@@ -32,6 +32,9 @@ class KeyPool:
     def __bool__(self) -> bool:
         return len(self._keys) > 0
 
+    def __len__(self) -> int:
+        return len(self._keys)
+
     def acquire(self) -> Optional[str]:
         """Next available key (round-robin), skipping cooling-down ones."""
         now = time.time()

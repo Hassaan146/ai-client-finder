@@ -1,6 +1,7 @@
 """Tier C adapters — local businesses: OpenStreetMap Overpass (+Nominatim geocode), Yelp."""
 from __future__ import annotations
 
+import re
 from typing import List
 
 import httpx
@@ -35,7 +36,9 @@ class OverpassAdapter(SourceAdapter):
             return []
         s, w, n, e = box
         # match name OR shop/amenity/craft tags against the niche keyword
-        kw = query.split()[0] if query else "shop"
+        # keep it alphanumeric — quotes/regex chars would break (or inject into) the OQL below
+        kw = re.sub(r"[^A-Za-z0-9]", "", query.split()[0]) if query.strip() else ""
+        kw = kw or "shop"
         oql = f"""[out:json][timeout:25];
 (
   node["name"~"{kw}",i]({s},{w},{n},{e});

@@ -56,7 +56,7 @@ class LLMClient:
             if not pool:
                 continue
             model = self._resolve_model(provider, want)
-            for _ in range(len(pool._keys)):
+            for _ in range(len(pool)):
                 key = pool.acquire()
                 if not key:
                     break

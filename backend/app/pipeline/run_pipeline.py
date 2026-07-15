@@ -66,11 +66,13 @@ def build_plan(run_id: int) -> None:
         _log(db, run, "plan ready — waiting for user approval")
         db.commit()
     except Exception as e:  # noqa: BLE001
+        db.rollback()  # session may be dirty after a DB error; clear before writing status
         run = db.get(Run, run_id)
-        run.status = "failed"
-        run.error = str(e)[:500]
-        _log(db, run, f"FAILED at planning: {type(e).__name__}")
-        db.commit()
+        if run:
+            run.status = "failed"
+            run.error = str(e)[:500]
+            _log(db, run, f"FAILED at planning: {type(e).__name__}")
+            db.commit()
         traceback.print_exc()
     finally:
         db.close()
@@ -97,8 +99,7 @@ def execute_run(run_id: int) -> None:
         source_names = _resolve_sources(req)
         _log(db, run, f"scout: hunting across {len(source_names)} sources: {', '.join(sorted(source_names))}")
         db.commit()
-        raw = scout.run_scout(plan, locations, source_names)
-        bd = getattr(scout.run_scout, "last_breakdown", {})
+        raw, bd = scout.run_scout(plan, locations, source_names)
         if bd:
             _log(db, run, "scout results by source: " + ", ".join(f"{k}={v}" for k, v in sorted(bd.items(), key=lambda x: -x[1])))
         cands, notes = validators.validate_candidates(raw)
@@ -166,11 +167,13 @@ def execute_run(run_id: int) -> None:
         _log(db, run, f"done — {done} ranked flash cards")
         db.commit()
     except Exception as e:  # noqa: BLE001
+        db.rollback()  # session may be dirty after a DB error; clear before writing status
         run = db.get(Run, run_id)
-        run.status = "failed"
-        run.error = str(e)[:500]
-        _log(db, run, f"FAILED: {type(e).__name__}: {str(e)[:120]}")
-        db.commit()
+        if run:
+            run.status = "failed"
+            run.error = str(e)[:500]
+            _log(db, run, f"FAILED: {type(e).__name__}: {str(e)[:120]}")
+            db.commit()
         traceback.print_exc()
     finally:
         db.close()

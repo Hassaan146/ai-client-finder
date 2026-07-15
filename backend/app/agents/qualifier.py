@@ -17,6 +17,10 @@ Leads:
 JSON only: [{{"i": 0, "score": 7, "reason": "one short sentence"}}, ...]"""
 
 
+def _join(v) -> str:
+    return ", ".join(str(x) for x in v) if isinstance(v, list) else str(v or "")
+
+
 def qualify(cands: List[Candidate], requirements: dict, icp: str,
             keep: int) -> List[tuple[Candidate, float, str]]:
     """Returns [(candidate, score, reason)] sorted best-first, trimmed to `keep`."""
@@ -30,9 +34,9 @@ def qualify(cands: List[Candidate], requirements: dict, icp: str,
             f"{i}. [{c.source}/{c.kind}] {c.title} — {c.snippet[:120]}" for i, c in enumerate(batch))
         try:
             rows = get_llm().chat_json(
-                BATCH_PROMPT.format(service=requirements.get("service", ""),
-                                    niche=requirements.get("niche", ""),
-                                    location=requirements.get("location", ""),
+                BATCH_PROMPT.format(service=_join(requirements.get("service", "")),
+                                    niche=_join(requirements.get("niche", "")),
+                                    location=_join(requirements.get("location", "")),
                                     icp=icp, leads=lead_lines),
                 tier="cheap", max_tokens=1000)
             for r in rows if isinstance(rows, list) else []:

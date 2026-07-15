@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import List
+from urllib.parse import quote
 
 import httpx
 
@@ -120,7 +121,7 @@ class MarginaliaAdapter(SourceAdapter):
     name, tier = "marginalia", "A"
 
     def _search(self, query, *, location, limit) -> List[Candidate]:
-        r = httpx.get(f"https://search.marginalia.nu/api/search/{httpx.QueryParams({'q': query})['q']}",
+        r = httpx.get(f"https://search.marginalia.nu/api/search/{quote(query, safe='')}",
                       params={"count": limit}, timeout=T)
         r.raise_for_status()
         return [Candidate(title=i.get("title", ""), url=i.get("url", ""),

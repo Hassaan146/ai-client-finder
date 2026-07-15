@@ -25,7 +25,7 @@ CONTACT_PATHS = ("", "/contact", "/contact-us", "/contacts", "/about", "/about-u
 
 def _domain(url: str) -> str:
     try:
-        return urlparse(url).netloc.lower().lstrip("www.")
+        return urlparse(url).netloc.lower().removeprefix("www.")
     except Exception:  # noqa: BLE001
         return ""
 
