@@ -207,7 +207,7 @@ const typesSummary = () => {
       : `${names.length} selected`
     : "Pick at least one";
 };
-let refreshers = {};
+const refreshers = {};
 
 async function initDropdowns() {
   const mk = (id, head, menu, items, opts, summary) => {
@@ -475,10 +475,11 @@ function renderCards(cards, status) {
   const box = $("cards");
   box.textContent = "";
   if (!cards.length) {
-    if (status === "done")
+    if (status === "done") {
       box.appendChild(
         el("p", "empty", "Run finished but produced no cards — try a broader niche or more locations."),
       );
+    }
     return;
   }
   const head = el("p", "cardT", `Ranked leads (${cards.length})`);
@@ -515,8 +516,9 @@ function renderCards(cards, status) {
     // ── contact block: the action zone, always visible ──
     const cs = el("div", "contact");
     cs.appendChild(el("b", "", "Contact"));
-    if (c.person || c.role)
+    if (c.person || c.role) {
       cs.appendChild(el("div", "kv", "👤 " + [c.person, c.role].filter(Boolean).join(" — ")));
+    }
     if (c.email) {
       const row = el("div", "contact-email");
       row.appendChild(el("span", "estat estat-" + (c.email_status || "unverified")));

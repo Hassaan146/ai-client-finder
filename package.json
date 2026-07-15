@@ -1,0 +1,17 @@
+{
+  "name": "ai-client-finder",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Frontend tooling for the AI Client/Lead Finder (vanilla JS served by FastAPI)",
+  "scripts": {
+    "lint": "eslint frontend/",
+    "lint:fix": "eslint frontend/ --fix",
+    "format": "prettier --write frontend/app.js",
+    "format:check": "prettier --check frontend/app.js"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0",
+    "prettier": "^3.0.0"
+  }
+}
