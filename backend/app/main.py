@@ -2,6 +2,7 @@
 generic errors (9), static basic frontend."""
 from __future__ import annotations
 
+import logging
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -14,6 +15,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from .api.routes import misc, runs
 from .config import get_settings
 from .db.base import init_db
+
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -29,7 +34,7 @@ settings = get_settings()
 app.add_middleware(CORSMiddleware, allow_origins=[settings.ALLOWED_ORIGIN],
                    allow_methods=["GET", "POST"], allow_headers=["content-type"])
 
-# simple in-memory per-IP limiter: 120 req/min general, 10/min run-creation
+# simple in-memory per-IP limiter (limits from Settings: RATE_LIMIT_PER_MIN / RUN_CREATES_PER_MIN)
 _hits: dict = defaultdict(list)
 _last_prune = 0.0
 
@@ -46,16 +51,15 @@ async def guard(request: Request, call_next):
     bucket = "runs" if (request.url.path == "/api/runs" and request.method == "POST") else "all"
     key = f"{ip}:{bucket}"
     _hits[key] = [t for t in _hits[key] if now - t < 60]
-    limit = 10 if bucket == "runs" else 120
+    limit = settings.RUN_CREATES_PER_MIN if bucket == "runs" else settings.RATE_LIMIT_PER_MIN
     if len(_hits[key]) >= limit:
         return JSONResponse({"detail": "rate limit exceeded"}, status_code=429,
                             headers={"Retry-After": "60"})
     _hits[key].append(now)
     try:
         resp = await call_next(request)
-    except Exception:  # noqa: BLE001 — generic out, detail stays server-side (vibe 9)
-        import traceback
-        traceback.print_exc()
+    except Exception:
+        log.exception("unhandled error on %s %s", request.method, request.url.path)
         return JSONResponse({"detail": "internal error"}, status_code=500)
     resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["X-Content-Type-Options"] = "nosniff"

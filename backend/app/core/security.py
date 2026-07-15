@@ -7,8 +7,9 @@ from urllib.parse import urlparse
 
 import httpx
 
-FETCH_TIMEOUT = 15.0
-MAX_FETCH_BYTES = 500_000
+from ..config import get_settings
+
+MAX_REDIRECTS = 5
 
 
 class SSRFBlocked(ValueError):
@@ -30,15 +31,30 @@ def assert_public_http(url: str) -> None:
             raise SSRFBlocked(f"private/internal address blocked: {p.hostname}")
 
 
-def safe_fetch_text(url: str, user_agent: str = "leadfinder/0.1") -> str:
-    """SSRF-guarded GET; returns text (capped). Treat result as UNTRUSTED data."""
+def safe_fetch_text(url: str, user_agent: str = "leadfinder/0.1", *,
+                    transport: httpx.BaseTransport | None = None) -> str:
+    """SSRF-guarded GET; returns text (capped). Treat result as UNTRUSTED data.
+
+    Redirects are followed MANUALLY (max MAX_REDIRECTS hops) so every hop's
+    Location is re-checked against the SSRF guard BEFORE it is fetched — a
+    public URL redirecting to 127.0.0.1/169.254.169.254 is blocked, not fetched.
+    """
+    s = get_settings()
     assert_public_http(url)
-    with httpx.Client(timeout=FETCH_TIMEOUT, follow_redirects=True,
-                      headers={"User-Agent": user_agent}) as c:
-        r = c.get(url)
-        r.raise_for_status()
-        assert_public_http(str(r.url))  # re-check after redirects
-        return r.text[:MAX_FETCH_BYTES]
+    with httpx.Client(timeout=s.FETCH_TIMEOUT, follow_redirects=False,
+                      headers={"User-Agent": user_agent}, transport=transport) as c:
+        for _ in range(MAX_REDIRECTS + 1):
+            r = c.get(url)
+            if r.status_code in (301, 302, 303, 307, 308):
+                loc = r.headers.get("location")
+                if not loc:
+                    raise SSRFBlocked(f"redirect without Location: {url[:80]}")
+                url = str(httpx.URL(url).join(loc))  # resolve relative redirects
+                assert_public_http(url)              # guard EVERY hop before fetching it
+                continue
+            r.raise_for_status()
+            return r.text[:s.MAX_FETCH_BYTES]
+    raise SSRFBlocked(f"too many redirects (> {MAX_REDIRECTS}): {url[:80]}")
 
 
 def wrap_untrusted(content: str, label: str = "web") -> str:

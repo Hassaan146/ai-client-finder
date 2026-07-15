@@ -26,7 +26,7 @@ CONTACT_PATHS = ("", "/contact", "/contact-us", "/contacts", "/about", "/about-u
 def _domain(url: str) -> str:
     try:
         return urlparse(url).netloc.lower().removeprefix("www.")
-    except Exception:  # noqa: BLE001
+    except Exception:
         return ""
 
 
@@ -61,7 +61,7 @@ def scrape_contacts(url: str) -> dict:
         seen_pages.add(page)
         try:
             html = safe_fetch_text(page, ua)
-        except Exception:  # noqa: BLE001 — page missing / blocked / SSRF: skip
+        except Exception:
             continue
         # mailto: and tel: links are the cleanest signal
         emails += [m.lower() for m in re.findall(r"mailto:([^\"'?>\s]+)", html)]
@@ -102,7 +102,7 @@ def verify_email(email: str) -> str:
             return {"valid": "valid", "safe": "valid", "invalid": "invalid",
                     "disposable": "risky", "spamtrap": "invalid", "unknown": "risky",
                     "catch_all": "risky"}.get(st, "risky")
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     try:
         if s.MILLIONVERIFIER_API_KEY:
@@ -111,7 +111,7 @@ def verify_email(email: str) -> str:
             res = str(r.json().get("result", "")).lower()
             return {"ok": "valid", "catch_all": "risky", "unknown": "risky",
                     "invalid": "invalid", "disposable": "risky"}.get(res, "risky")
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return "unverified"
 

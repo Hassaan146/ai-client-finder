@@ -1,13 +1,13 @@
 """Tests for LLM key-pool rotation/failover + small pure helpers."""
 from __future__ import annotations
 
-import pytest
+import json
 
+import pytest
 from app.core.contacts import _domain, guess_email
 from app.llm.client import extract_json
 from app.llm.key_pool import KeyPool, PoolRegistry
 from app.sources.base import Candidate, dedupe
-
 
 # ── KeyPool ─────────────────────────────────────────────────────────────────
 
@@ -70,7 +70,7 @@ def test_extract_json_trailing_comma():
 
 
 def test_extract_json_garbage_raises():
-    with pytest.raises(Exception):
+    with pytest.raises(json.JSONDecodeError):
         extract_json("no json here at all")
 
 

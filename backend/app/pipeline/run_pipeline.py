@@ -8,17 +8,19 @@ Runs in a background thread; progress + cards live in the DB (frontend polls).
 from __future__ import annotations
 
 import json
-import traceback
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..agents import analyst, closer, enricher, planner, qualifier, scout, validators
+from ..config import get_settings
+from ..core.text import as_list, join_str
 from ..db.base import SessionLocal
 from ..db.models import Card, Run
 from ..sources.registry import adapters_by_name
 from .gcf import GCF
 
-CARD_WORKERS = 4
+log = logging.getLogger(__name__)
 
 # lead type -> candidate source adapters (business-first)
 LEAD_TYPE_SOURCES = {
@@ -45,7 +47,7 @@ def _resolve_sources(req: dict) -> list[str]:
 
 def _log(db, run: Run, msg: str) -> None:
     log = json.loads(run.log or "[]")
-    log.append(f"{datetime.now(timezone.utc).strftime('%H:%M:%S')} {msg}")
+    log.append(f"{datetime.now(UTC).strftime('%H:%M:%S')} {msg}")
     run.log = json.dumps(log[-80:])
     db.commit()
 
@@ -65,7 +67,7 @@ def build_plan(run_id: int) -> None:
         run.status = "plan_ready"
         _log(db, run, "plan ready — waiting for user approval")
         db.commit()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         db.rollback()  # session may be dirty after a DB error; clear before writing status
         run = db.get(Run, run_id)
         if run:
@@ -73,7 +75,7 @@ def build_plan(run_id: int) -> None:
             run.error = str(e)[:500]
             _log(db, run, f"FAILED at planning: {type(e).__name__}")
             db.commit()
-        traceback.print_exc()
+        log.exception("build_plan failed for run %s", run_id)
     finally:
         db.close()
 
@@ -84,13 +86,13 @@ def execute_run(run_id: int) -> None:
     try:
         run = db.get(Run, run_id)
         req = json.loads(run.requirements)
-        plan = json.loads(run.plan)
-        service_str = ", ".join(req.get("service", []) if isinstance(req.get("service"), list) else [req.get("service", "")])
-        locations = req.get("location", []) if isinstance(req.get("location"), list) else [req.get("location", "")]
+        plan = json.loads(run.plan or "{}")
+        service_str = join_str(req.get("service"))
+        locations = as_list(req.get("location"))
         gcf = GCF()
         run_node = gcf.add("Run", service=service_str,
-                           niche=", ".join(req.get("niche", []) if isinstance(req.get("niche"), list) else []),
-                           location=", ".join(l for l in locations if l))
+                           niche=join_str(req.get("niche")),
+                           location=join_str(locations))
         plan_node = gcf.add("Plan", icp=plan.get("icp", ""))
         gcf.link(run_node, "has_plan", plan_node)
 
@@ -101,9 +103,11 @@ def execute_run(run_id: int) -> None:
         db.commit()
         raw, bd, src_errors = scout.run_scout(plan, locations, source_names)
         if bd:
-            _log(db, run, "scout results by source: " + ", ".join(f"{k}={v}" for k, v in sorted(bd.items(), key=lambda x: -x[1])))
+            counts = ", ".join(f"{k}={v}" for k, v in sorted(bd.items(), key=lambda x: -x[1]))
+            _log(db, run, f"scout results by source: {counts}")
         if src_errors:
-            _log(db, run, "sources that failed to respond: " + ", ".join(f"{k} ({v})" for k, v in sorted(src_errors.items())))
+            fails = ", ".join(f"{k} ({v})" for k, v in sorted(src_errors.items()))
+            _log(db, run, f"sources that failed to respond: {fails}")
         cands, notes = validators.validate_candidates(raw)
         for n in notes:
             _log(db, run, f"V2(candidates): {n}")
@@ -137,12 +141,12 @@ def execute_run(run_id: int) -> None:
             return cand, score, reason, enr, ana, out, (n3 + n4 + n5)
 
         done = 0
-        with ThreadPoolExecutor(max_workers=CARD_WORKERS) as ex:
+        with ThreadPoolExecutor(max_workers=get_settings().CARD_WORKERS) as ex:
             futs = [ex.submit(build_card, item) for item in ranked]
             for f in as_completed(futs):
                 try:
                     cand, score, reason, enr, ana, out, vnotes = f.result()
-                except Exception:  # noqa: BLE001 — drop one bad card, keep the rest
+                except Exception:
                     continue
                 # GCF wiring (persisted with the run)
                 c_node = gcf.add("Company", name=cand.title, url=cand.url, source=cand.source)
@@ -165,10 +169,10 @@ def execute_run(run_id: int) -> None:
         run.status = "done" if done else "failed"
         if not done:
             run.error = "No cards could be built (all leads failed analysis)."
-        run.finished_at = datetime.now(timezone.utc)
+        run.finished_at = datetime.now(UTC)
         _log(db, run, f"done — {done} ranked flash cards")
         db.commit()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         db.rollback()  # session may be dirty after a DB error; clear before writing status
         run = db.get(Run, run_id)
         if run:
@@ -176,6 +180,6 @@ def execute_run(run_id: int) -> None:
             run.error = str(e)[:500]
             _log(db, run, f"FAILED: {type(e).__name__}: {str(e)[:120]}")
             db.commit()
-        traceback.print_exc()
+        log.exception("execute_run failed for run %s", run_id)
     finally:
         db.close()

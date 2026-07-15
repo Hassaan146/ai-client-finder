@@ -3,13 +3,17 @@ from __future__ import annotations
 
 import json
 import threading
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from ...config import get_settings
+from ...core.text import as_list
 from ...db.base import SessionLocal
 from ...db.models import Card, Run
 from ...pipeline.run_pipeline import build_plan, execute_run
+from ..deps import require_api_token
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
@@ -17,10 +21,8 @@ router = APIRouter(prefix="/api/runs", tags=["runs"])
 LEAD_TYPES = {"local_business", "companies_web", "job_posts", "community_intent", "news_signals"}
 
 
-def _as_list(v):
-    if isinstance(v, list):
-        return [str(x).strip()[:120] for x in v if str(x).strip()][:12]
-    return [str(v).strip()[:120]] if str(v).strip() else []
+def _req_list(v):
+    return as_list(v, max_items=12, max_chars=120)
 
 
 class RequirementsIn(BaseModel):
@@ -36,7 +38,7 @@ class RequirementsIn(BaseModel):
     @field_validator("service", "niche", mode="before")
     @classmethod
     def _req_multi(cls, v):
-        v = _as_list(v)
+        v = _req_list(v)
         if not v:
             raise ValueError("select or type at least one value")
         return v
@@ -44,7 +46,7 @@ class RequirementsIn(BaseModel):
     @field_validator("location", mode="before")
     @classmethod
     def _opt_multi(cls, v):
-        return _as_list(v)
+        return _req_list(v)
 
     @field_validator("lead_types")
     @classmethod
@@ -57,10 +59,16 @@ class RequirementsIn(BaseModel):
         return v[:20]
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_api_token)])
 def create_run(req: RequirementsIn):
     db = SessionLocal()
     try:
+        # daily free-tier cap: count runs created since UTC midnight
+        limit = get_settings().USER_DAILY_RUN_LIMIT
+        today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        used = db.query(Run).filter(Run.created_at >= today_start).count()
+        if used >= limit:
+            raise HTTPException(429, f"daily run limit reached ({limit}/day) — try again tomorrow")
         run = Run(status="planning", requirements=req.model_dump_json())
         db.add(run)
         db.commit()
@@ -70,17 +78,21 @@ def create_run(req: RequirementsIn):
         db.close()
 
 
-@router.post("/{run_id}/approve")
+@router.post("/{run_id}/approve", dependencies=[Depends(require_api_token)])
 def approve_run(run_id: int):
     db = SessionLocal()
     try:
-        run = db.get(Run, run_id)
-        if not run:
-            raise HTTPException(404, "run not found")
-        if run.status != "plan_ready":
-            raise HTTPException(409, f"run is '{run.status}', not awaiting approval")
-        run.status = "sourcing"
+        # atomic conditional update: only ONE approve can win the plan_ready -> sourcing
+        # transition, so execute_run can never be spawned twice for the same run.
+        claimed = (db.query(Run)
+                   .filter(Run.id == run_id, Run.status == "plan_ready")
+                   .update({"status": "sourcing"}, synchronize_session=False))
         db.commit()
+        if claimed != 1:
+            run = db.get(Run, run_id)
+            if not run:
+                raise HTTPException(404, "run not found")
+            raise HTTPException(409, f"run is '{run.status}', not awaiting approval")
         threading.Thread(target=execute_run, args=(run_id,), daemon=True).start()
         return {"id": run_id, "status": "sourcing"}
     finally:
@@ -89,6 +101,7 @@ def approve_run(run_id: int):
 
 @router.get("/{run_id}")
 def get_run(run_id: int):
+    priority_min_fit = get_settings().PRIORITY_MIN_FIT
     db = SessionLocal()
     try:
         run = db.get(Run, run_id)
@@ -107,8 +120,9 @@ def get_run(run_id: int):
                 "email_status": c.email_status, "phone": c.phone,
                 "socials": json.loads(c.socials or "[]"),
                 "person": c.person, "role": c.role,
-                # "contact first": strong fit AND a usable, non-invalid email
-                "priority": bool(c.fit_score >= 7 and c.email and c.email_status in ("valid", "risky", "guessed")),
+                # "contact first": strong fit AND a deliverable email (guessed ones stay normal)
+                "priority": bool(c.fit_score >= priority_min_fit and c.email
+                                 and c.email_status in ("valid", "risky")),
                 "analysis": json.loads(c.analysis or "{}"),
                 "outreach": json.loads(c.outreach or "{}"),
                 "validator_notes": json.loads(c.validator_notes or "[]"),

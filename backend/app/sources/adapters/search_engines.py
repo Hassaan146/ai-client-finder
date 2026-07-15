@@ -1,7 +1,6 @@
 """Tier A adapters — meta-search backbone: SearXNG, DuckDuckGo, Tavily, Google PSE, Wikipedia, Marginalia."""
 from __future__ import annotations
 
-from typing import List
 from urllib.parse import quote
 
 import httpx
@@ -9,7 +8,7 @@ import httpx
 from ...config import get_settings
 from ..base import Candidate, SourceAdapter
 
-T = 20.0
+T = get_settings().SOURCE_TIMEOUT
 
 
 class SearxngAdapter(SourceAdapter):
@@ -18,7 +17,7 @@ class SearxngAdapter(SourceAdapter):
     def available(self) -> bool:
         return bool(get_settings().SEARXNG_BASE_URL)
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         base = get_settings().SEARXNG_BASE_URL.rstrip("/")
         r = httpx.get(f"{base}/search", params={"q": f"{query} {location}".strip(), "format": "json"},
                       timeout=T)
@@ -43,7 +42,7 @@ class DuckDuckGoAdapter(SourceAdapter):
             except ImportError:
                 return False
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         try:
             from ddgs import DDGS
         except ImportError:
@@ -62,7 +61,7 @@ class TavilyAdapter(SourceAdapter):
     def available(self) -> bool:
         return bool(get_settings().TAVILY_API_KEYS)
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         keys = get_settings().TAVILY_API_KEYS
         last: Exception | None = None
         for key in keys:  # mini pool failover
@@ -74,7 +73,7 @@ class TavilyAdapter(SourceAdapter):
                 return [Candidate(title=i.get("title", ""), url=i.get("url", ""),
                                   snippet=i.get("content", ""), source=self.name, tier=self.tier)
                         for i in r.json().get("results", [])]
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 last = e
         if last:
             raise last
@@ -88,7 +87,7 @@ class GooglePSEAdapter(SourceAdapter):
         s = get_settings()
         return bool(s.GOOGLE_PSE_API_KEY and s.GOOGLE_PSE_CX)
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         s = get_settings()
         r = httpx.get("https://www.googleapis.com/customsearch/v1",
                       params={"key": s.GOOGLE_PSE_API_KEY, "cx": s.GOOGLE_PSE_CX,
@@ -103,7 +102,7 @@ class WikipediaAdapter(SourceAdapter):
     """No key. Background/company info."""
     name, tier = "wikipedia", "A"
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         r = httpx.get("https://en.wikipedia.org/w/api.php",
                       params={"action": "query", "list": "search", "srsearch": f"{query} {location}".strip(),
                               "format": "json", "srlimit": limit},
@@ -111,7 +110,8 @@ class WikipediaAdapter(SourceAdapter):
         r.raise_for_status()
         return [Candidate(title=i["title"],
                           url=f"https://en.wikipedia.org/wiki/{i['title'].replace(' ', '_')}",
-                          snippet=i.get("snippet", "").replace('<span class="searchmatch">', "").replace("</span>", ""),
+                          snippet=(i.get("snippet", "")
+                                   .replace('<span class="searchmatch">', "").replace("</span>", "")),
                           source=self.name, tier=self.tier, kind="signal")
                 for i in r.json().get("query", {}).get("search", [])]
 
@@ -120,7 +120,7 @@ class MarginaliaAdapter(SourceAdapter):
     """No key — independent index (public endpoint; skipped silently if down)."""
     name, tier = "marginalia", "A"
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         r = httpx.get(f"https://search.marginalia.nu/api/search/{quote(query, safe='')}",
                       params={"count": limit}, timeout=T)
         r.raise_for_status()

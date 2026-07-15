@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Optional
+import threading
+from datetime import UTC, datetime
 
 import httpx
 
 from ..config import get_settings
 from .key_pool import PoolRegistry
-
-TIMEOUT = 60.0
 
 # provider -> (chat endpoint, models endpoint)
 OAI_PROVIDERS = {
@@ -36,6 +35,33 @@ class LLMError(RuntimeError):
     pass
 
 
+# ── daily output-token budget (in-memory, thread-safe, resets at UTC midnight) ──
+_budget_lock = threading.Lock()
+_budget_day: str = ""
+_budget_used = 0
+
+
+def _budget_check(limit: int) -> None:
+    """Raise LLMError once the day's approximate output tokens exceed the budget."""
+    global _budget_day, _budget_used
+    today = datetime.now(UTC).date().isoformat()
+    with _budget_lock:
+        if _budget_day != today:
+            _budget_day, _budget_used = today, 0
+        if _budget_used >= limit:
+            raise LLMError(f"daily token budget exhausted ({_budget_used}/{limit} output tokens) "
+                           "— resets at UTC midnight")
+
+
+def _budget_add(tokens: int) -> None:
+    global _budget_day, _budget_used
+    today = datetime.now(UTC).date().isoformat()
+    with _budget_lock:
+        if _budget_day != today:
+            _budget_day, _budget_used = today, 0
+        _budget_used += max(int(tokens), 0)
+
+
 class LLMClient:
     def __init__(self) -> None:
         s = get_settings()
@@ -45,8 +71,9 @@ class LLMClient:
 
     # ── public API ──────────────────────────────────────────────────────────
     def chat(self, prompt: str, *, system: str = "", tier: str = "cheap",
-             max_tokens: Optional[int] = None, json_mode: bool = False) -> str:
+             max_tokens: int | None = None, json_mode: bool = False) -> str:
         """tier: 'cheap' (scout/validate) or 'big' (diagnosis/pitch)."""
+        _budget_check(self.settings.USER_DAILY_TOKEN_BUDGET)
         want = self.settings.LLM_MODEL_CHEAP if tier == "cheap" else self.settings.LLM_MODEL_BIG
         max_tokens = min(max_tokens or self.settings.MAX_TOKENS_PER_CALL, self.settings.MAX_TOKENS_PER_CALL)
         order = self._provider_order(want)
@@ -71,14 +98,14 @@ class LLMClient:
                     errors.append(f"{provider}:{e.response.status_code}")
                     if not retriable:
                         break
-                except Exception as e:  # noqa: BLE001 — network problems: bench key, keep going
+                except Exception as e:
                     pool.report(key, ok=False)
                     errors.append(f"{provider}:{type(e).__name__}")
         raise LLMError(f"All LLM providers failed ({', '.join(errors) or 'no keys configured'}). "
                        f"Check .env pools + run validate_keys.py")
 
     def chat_json(self, prompt: str, *, system: str = "", tier: str = "cheap",
-                  max_tokens: Optional[int] = None) -> dict | list:
+                  max_tokens: int | None = None) -> dict | list:
         raw = self.chat(prompt, system=system + "\nRespond with valid JSON only.",
                         tier=tier, max_tokens=max_tokens, json_mode=True)
         try:
@@ -126,7 +153,7 @@ class LLMClient:
                     r = httpx.get(OAI_PROVIDERS[provider][1],
                                   headers={"Authorization": f"Bearer {key}"}, timeout=20)
                     ids = [m["id"] for m in r.json().get("data", [])]
-        except Exception:  # noqa: BLE001 — cache empty list; resolve falls back to wanted id
+        except Exception:
             pass
         self._model_cache[provider] = ids
         return ids
@@ -138,24 +165,33 @@ class LLMClient:
             "messages": ([{"role": "system", "content": system}] if system else [])
                         + [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens,
-            "temperature": 0.3,
+            "temperature": self.settings.LLM_TEMPERATURE,
         }
         if json_mode and provider in ("openrouter", "groq", "deepseek"):
             body["response_format"] = {"type": "json_object"}
-        r = httpx.post(OAI_PROVIDERS[provider][0], json=body, timeout=TIMEOUT,
+        r = httpx.post(OAI_PROVIDERS[provider][0], json=body, timeout=self.settings.LLM_TIMEOUT,
                        headers={"Authorization": f"Bearer {key}"})
         r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"] or ""
+        data = r.json()
+        text = data["choices"][0]["message"]["content"] or ""
+        usage = (data.get("usage") or {}).get("completion_tokens")
+        _budget_add(usage if isinstance(usage, int) else len(text) // 4)
+        return text
 
     def _chat_gemini(self, provider: str, key: str, model: str, prompt: str,
                      system: str, max_tokens: int, json_mode: bool) -> str:
         model = model or "gemini-2.0-flash"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         body = {"contents": [{"parts": [{"text": (system + "\n\n" if system else "") + prompt}]}],
-                "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3}}
-        r = httpx.post(url, params={"key": key}, json=body, timeout=TIMEOUT)
+                "generationConfig": {"maxOutputTokens": max_tokens,
+                                     "temperature": self.settings.LLM_TEMPERATURE}}
+        r = httpx.post(url, params={"key": key}, json=body, timeout=self.settings.LLM_TIMEOUT)
         r.raise_for_status()
-        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+        data = r.json()
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        usage = (data.get("usageMetadata") or {}).get("candidatesTokenCount")
+        _budget_add(usage if isinstance(usage, int) else len(text) // 4)
+        return text
 
 
 def extract_json(text: str) -> dict | list:
@@ -176,7 +212,7 @@ def extract_json(text: str) -> dict | list:
     raise json.JSONDecodeError("no JSON found in model output", text[:80], 0)
 
 
-_client: Optional[LLMClient] = None
+_client: LLMClient | None = None
 
 
 def get_llm() -> LLMClient:

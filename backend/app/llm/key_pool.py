@@ -7,7 +7,8 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+
+from ..config import get_settings
 
 
 @dataclass
@@ -21,12 +22,12 @@ class _Key:
 class KeyPool:
     """One provider's keys. Thread-safe. `acquire()` -> a usable key or None."""
     provider: str
-    _keys: List[_Key] = field(default_factory=list)
+    _keys: list[_Key] = field(default_factory=list)
     _idx: int = 0
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     @classmethod
-    def from_list(cls, provider: str, keys: List[str]) -> "KeyPool":
+    def from_list(cls, provider: str, keys: list[str]) -> KeyPool:
         return cls(provider=provider, _keys=[_Key(k) for k in keys])
 
     def __bool__(self) -> bool:
@@ -35,7 +36,7 @@ class KeyPool:
     def __len__(self) -> int:
         return len(self._keys)
 
-    def acquire(self) -> Optional[str]:
+    def acquire(self) -> str | None:
         """Next available key (round-robin), skipping cooling-down ones."""
         now = time.time()
         with self._lock:
@@ -47,8 +48,10 @@ class KeyPool:
                     return k.value
             return None  # all cooling down -> caller should back off / try another provider
 
-    def report(self, key: str, ok: bool, cooldown: float = 60.0) -> None:
+    def report(self, key: str, ok: bool, cooldown: float | None = None) -> None:
         """Feed back the result so bad keys get benched, good ones reset."""
+        if cooldown is None:
+            cooldown = get_settings().KEY_COOLDOWN_SECONDS
         with self._lock:
             for k in self._keys:
                 if k.value == key:
@@ -61,15 +64,15 @@ class KeyPool:
 
 
 class PoolRegistry:
-    """All provider pools. Router asks here for a key. TODO: wire into llm/router.py."""
+    """All provider pools. LLMClient (llm/client.py) asks here for keys and reports results."""
 
-    def __init__(self, pools: Dict[str, List[str]]):
-        self.pools: Dict[str, KeyPool] = {
+    def __init__(self, pools: dict[str, list[str]]):
+        self.pools: dict[str, KeyPool] = {
             name: KeyPool.from_list(name, keys) for name, keys in pools.items()
         }
 
     def get(self, provider: str) -> KeyPool:
         return self.pools.get(provider, KeyPool(provider))
 
-    def available_providers(self) -> List[str]:
+    def available_providers(self) -> list[str]:
         return [name for name, pool in self.pools.items() if pool]

@@ -1,0 +1,5 @@
+# keep the hand-tuned compact CSS in index.html as-is
+frontend/index.html
+# python + docs are not prettier's job
+backend/
+*.md

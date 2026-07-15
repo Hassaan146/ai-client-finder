@@ -42,7 +42,7 @@ def enrich(cand: Candidate) -> dict:
                         result[k] = data[k]
                 if isinstance(data.get("signals"), list):
                     result["signals"] = data["signals"][:6]
-        except Exception:  # noqa: BLE001 — page fetch/LLM failed; contact waterfall still runs
+        except Exception:
             pass
 
     # 2) contact waterfall (scrape contact pages + guess + verify)

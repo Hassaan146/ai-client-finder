@@ -1,6 +1,7 @@
 """Planner: user requirements (multi service/niche/location) -> business-discovery plan."""
 from __future__ import annotations
 
+from ..core.text import as_list
 from ..llm.client import get_llm
 
 LEAD_TYPE_GUIDE = {
@@ -36,16 +37,10 @@ Rules:
 - Bake each location into its queries."""
 
 
-def _as_list(v) -> list[str]:
-    if isinstance(v, list):
-        return [str(x).strip() for x in v if str(x).strip()]
-    return [str(v).strip()] if str(v).strip() else []
-
-
 def make_plan(requirements: dict) -> dict:
-    services = _as_list(requirements.get("service"))
-    niches = _as_list(requirements.get("niche"))
-    locations = _as_list(requirements.get("location"))
+    services = as_list(requirements.get("service"))
+    niches = as_list(requirements.get("niche"))
+    locations = as_list(requirements.get("location"))
     lead_types = requirements.get("lead_types") or ["companies_web", "local_business"]
     desc = "; ".join(f"{t} = {LEAD_TYPE_GUIDE.get(t, t)}" for t in lead_types)
 

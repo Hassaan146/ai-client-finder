@@ -1,7 +1,7 @@
 """ORM models: Run (one pipeline execution) + Card (one ranked flash card)."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -10,7 +10,7 @@ from .base import Base
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Run(Base):
@@ -40,11 +40,12 @@ class Card(Base):
     fit_reason: Mapped[str] = mapped_column(String(250), default="")
     company: Mapped[str] = mapped_column(String(200), default="")
     email: Mapped[str] = mapped_column(String(200), default="")
-    email_status: Mapped[str] = mapped_column(String(16), default="unverified")  # valid|risky|invalid|guessed|unverified
+    # valid | risky | invalid | guessed | unverified
+    email_status: Mapped[str] = mapped_column(String(16), default="unverified")
     phone: Mapped[str] = mapped_column(String(50), default="")
     socials: Mapped[str] = mapped_column(Text, default="[]")   # json list
     person: Mapped[str] = mapped_column(String(120), default="")
     role: Mapped[str] = mapped_column(String(120), default="")
-    analysis: Mapped[str] = mapped_column(Text, default="{}")       # json (requirement/analyzer/problems/solutions)
+    analysis: Mapped[str] = mapped_column(Text, default="{}")   # json (requirement/problems/solutions)
     outreach: Mapped[str] = mapped_column(Text, default="{}")       # json (genre/channel/subject/message)
     validator_notes: Mapped[str] = mapped_column(Text, default="[]")

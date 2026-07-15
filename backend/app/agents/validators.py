@@ -10,7 +10,6 @@ Each returns (passed_items_or_obj, notes[]) and never hard-crashes the run.
 from __future__ import annotations
 
 import re
-from typing import List, Tuple
 
 from ..llm.client import get_llm
 from ..sources.base import Candidate, dedupe
@@ -20,8 +19,8 @@ EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 JUNK_TITLES = ("404", "access denied", "just a moment", "cloudflare", "sign in", "login")
 
 
-def validate_plan(plan: dict) -> Tuple[dict, List[str]]:
-    notes: List[str] = []
+def validate_plan(plan: dict) -> tuple[dict, list[str]]:
+    notes: list[str] = []
     active = set(adapters_by_name().keys())
     tiers = plan.get("tiers") or []
     fixed = []
@@ -43,8 +42,8 @@ def validate_plan(plan: dict) -> Tuple[dict, List[str]]:
     return plan, notes
 
 
-def validate_candidates(cands: List[Candidate]) -> Tuple[List[Candidate], List[str]]:
-    notes: List[str] = []
+def validate_candidates(cands: list[Candidate]) -> tuple[list[Candidate], list[str]]:
+    notes: list[str] = []
     before = len(cands)
     cands = dedupe(cands)
     out = []
@@ -59,11 +58,11 @@ def validate_candidates(cands: List[Candidate]) -> Tuple[List[Candidate], List[s
     return out, notes
 
 
-def validate_enrichment(email: str, phone: str) -> Tuple[dict, List[str]]:
-    notes: List[str] = []
+def validate_enrichment(email: str, phone: str) -> tuple[dict, list[str]]:
+    notes: list[str] = []
     ok_email = email if email and EMAIL_RE.match(email) else ""
     if email and not ok_email:
-        notes.append(f"dropped malformed email")
+        notes.append("dropped malformed email")
     ok_phone = re.sub(r"[^\d+()\- ]", "", phone or "")[:25]
     return {"email": ok_email, "phone": ok_phone}, notes
 
@@ -79,8 +78,8 @@ ANALYSIS:
 {analysis}"""
 
 
-def validate_analysis(analysis: dict, evidence: str) -> Tuple[dict, List[str]]:
-    notes: List[str] = []
+def validate_analysis(analysis: dict, evidence: str) -> tuple[dict, list[str]]:
+    notes: list[str] = []
     text = str(analysis)
     # rule: any % must be accompanied by estimate language
     if re.search(r"\d+\s*%", text) and not re.search(r"estimat|rang|approx|~|could|potential", text, re.I):
@@ -93,7 +92,7 @@ def validate_analysis(analysis: dict, evidence: str) -> Tuple[dict, List[str]]:
         if isinstance(verdict, dict) and verdict.get("grounded") is False:
             analysis["validator_flags"] = verdict.get("issues", [])[:5]
             notes.append("analysis flagged by groundedness check")
-    except Exception:  # noqa: BLE001 — validator LLM down: rules-only pass
+    except Exception:
         notes.append("LLM groundedness check skipped (provider error)")
     return analysis, notes
 
@@ -104,8 +103,8 @@ BANNED_OUTREACH = ("guaranteed", "100% success", "no risk at all")
 PLACEHOLDER_RE = re.compile(r"\[(?:name|first name|company|your name|contact)[^\]]*\]|\{\{[^}]*\}\}", re.I)
 
 
-def validate_outreach(draft: str) -> Tuple[str, List[str]]:
-    notes: List[str] = []
+def validate_outreach(draft: str) -> tuple[str, list[str]]:
+    notes: list[str] = []
     low = draft.lower()
     for b in BANNED_OUTREACH:
         if b in low:

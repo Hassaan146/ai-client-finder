@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-from typing import List
 
 import httpx
 
@@ -28,7 +27,7 @@ class OverpassAdapter(SourceAdapter):
         bb = rows[0]["boundingbox"]  # [s, n, w, e]
         return float(bb[0]), float(bb[2]), float(bb[1]), float(bb[3])  # s,w,n,e
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         if not location:
             return []
         box = self._bbox(location)
@@ -49,17 +48,19 @@ class OverpassAdapter(SourceAdapter):
 out body {min(limit * 3, 60)};"""
         r = httpx.post(get_settings().OVERPASS_URL, data={"data": oql}, timeout=T)
         r.raise_for_status()
-        out: List[Candidate] = []
+        out: list[Candidate] = []
         for el in r.json().get("elements", []):
             tags = el.get("tags", {})
             if not tags.get("name"):
                 continue
-            contact = tags.get("contact:email") or tags.get("email") or tags.get("phone") or tags.get("contact:phone", "")
+            contact = (tags.get("contact:email") or tags.get("email")
+                       or tags.get("phone") or tags.get("contact:phone", ""))
             out.append(Candidate(
                 title=tags["name"],
                 url=tags.get("website") or tags.get("contact:website", ""),
-                snippet=", ".join(f"{k}={v}" for k, v in tags.items()
-                                  if k in ("shop", "amenity", "craft", "cuisine", "addr:street", "addr:city"))[:300],
+                snippet=", ".join(
+                    f"{k}={v}" for k, v in tags.items()
+                    if k in ("shop", "amenity", "craft", "cuisine", "addr:street", "addr:city"))[:300],
                 source=self.name, tier=self.tier, kind="company", location=location,
                 contact_hint=contact, extra={"osm_id": el.get("id")}))
             if len(out) >= limit:
@@ -73,7 +74,7 @@ class YelpAdapter(SourceAdapter):
     def available(self) -> bool:
         return bool(get_settings().YELP_API_KEY)
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         if not location:
             return []
         r = httpx.get("https://api.yelp.com/v3/businesses/search",

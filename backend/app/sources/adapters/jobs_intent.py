@@ -2,21 +2,20 @@
 from __future__ import annotations
 
 import base64
-from typing import List
 
 import httpx
 
 from ...config import get_settings
 from ..base import Candidate, SourceAdapter
 
-T = 20.0
+T = get_settings().SOURCE_TIMEOUT
 
 
 class HackerNewsAdapter(SourceAdapter):
     """No key — Algolia API. Who's-hiring + freelance threads."""
     name, tier = "hackernews", "B"
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         r = httpx.get("https://hn.algolia.com/api/v1/search",
                       params={"query": f"{query} {location}".strip(), "tags": "story", "hitsPerPage": limit},
                       timeout=T)
@@ -49,7 +48,7 @@ class RedditAdapter(SourceAdapter):
         r.raise_for_status()
         return r.json()["access_token"]
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         s = get_settings()
         tok = self._token()
         r = httpx.get(f"https://oauth.reddit.com/r/{self.SUBS}/search",
@@ -73,7 +72,7 @@ class RemoteOKAdapter(SourceAdapter):
     """No key — public JSON."""
     name, tier = "remoteok", "B"
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         r = httpx.get("https://remoteok.com/api",
                       headers={"User-Agent": get_settings().NOMINATIM_USER_AGENT}, timeout=T)
         r.raise_for_status()
@@ -95,7 +94,7 @@ class RemotiveAdapter(SourceAdapter):
     """No key — public API."""
     name, tier = "remotive", "B"
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         r = httpx.get("https://remotive.com/api/remote-jobs",
                       params={"search": query, "limit": limit}, timeout=T)
         r.raise_for_status()
@@ -112,7 +111,7 @@ class AdzunaAdapter(SourceAdapter):
         s = get_settings()
         return bool(s.ADZUNA_APP_ID and s.ADZUNA_APP_KEY)
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         s = get_settings()
         r = httpx.get("https://api.adzuna.com/v1/api/jobs/us/search/1",
                       params={"app_id": s.ADZUNA_APP_ID, "app_key": s.ADZUNA_APP_KEY,
@@ -130,7 +129,7 @@ class GitHubAdapter(SourceAdapter):
     """Orgs/devs by topic. Token optional (higher limit with it)."""
     name, tier = "github", "D"
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         tok = get_settings().GITHUB_TOKEN
         headers = {"Accept": "application/vnd.github+json"}
         if tok:
@@ -151,7 +150,7 @@ class NewsAPIAdapter(SourceAdapter):
     def available(self) -> bool:
         return bool(get_settings().NEWSAPI_KEY)
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         r = httpx.get("https://newsapi.org/v2/everything",
                       params={"q": f"{query} {location}".strip(), "pageSize": limit,
                               "sortBy": "publishedAt", "apiKey": get_settings().NEWSAPI_KEY}, timeout=T)
@@ -168,7 +167,7 @@ class JoobleAdapter(SourceAdapter):
     def available(self) -> bool:
         return bool(get_settings().JOOBLE_API_KEY)
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         r = httpx.post(f"https://jooble.org/api/{get_settings().JOOBLE_API_KEY}",
                        json={"keywords": query, "location": location}, timeout=T)
         r.raise_for_status()
@@ -187,7 +186,7 @@ class USAJobsAdapter(SourceAdapter):
         s = get_settings()
         return bool(s.USAJOBS_API_KEY and s.USAJOBS_EMAIL)
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         s = get_settings()
         r = httpx.get("https://data.usajobs.gov/api/search",
                       params={"Keyword": query, "LocationName": location, "ResultsPerPage": min(limit, 25)},
@@ -197,7 +196,8 @@ class USAJobsAdapter(SourceAdapter):
         out = []
         for it in r.json().get("SearchResult", {}).get("SearchResultItems", []):
             d = it.get("MatchedObjectDescriptor", {})
-            out.append(Candidate(title=f"{d.get('PositionTitle','')} @ {d.get('OrganizationName','')}".strip(" @"),
+            title = f"{d.get('PositionTitle', '')} @ {d.get('OrganizationName', '')}".strip(" @")
+            out.append(Candidate(title=title,
                                  url=d.get("PositionURI", ""),
                                  snippet=(d.get("QualificationSummary") or "")[:300],
                                  source=self.name, tier=self.tier, kind="job",
@@ -213,7 +213,7 @@ class ProductHuntAdapter(SourceAdapter):
     def available(self) -> bool:
         return bool(get_settings().PRODUCTHUNT_TOKEN)
 
-    def _search(self, query, *, location, limit) -> List[Candidate]:
+    def _search(self, query, *, location, limit) -> list[Candidate]:
         gql = "{ posts(first: 20, order: RANKING) { edges { node { name tagline website url } } } }"
         r = httpx.post("https://api.producthunt.com/v2/api/graphql", json={"query": gql},
                        headers={"Authorization": f"Bearer {get_settings().PRODUCTHUNT_TOKEN}",
@@ -226,5 +226,6 @@ class ProductHuntAdapter(SourceAdapter):
             text = f"{n.get('name','')} {n.get('tagline','')}".lower()
             if not ql or any(w in text for w in ql):
                 out.append(Candidate(title=n.get("name", ""), url=n.get("website") or n.get("url", ""),
-                                     snippet=n.get("tagline", ""), source=self.name, tier=self.tier, kind="signal"))
+                                     snippet=n.get("tagline", ""), source=self.name, tier=self.tier,
+                                     kind="signal"))
         return out[:limit]

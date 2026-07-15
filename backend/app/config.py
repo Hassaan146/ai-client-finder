@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, List
+from typing import Annotated
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -13,10 +13,10 @@ _ROOT = Path(__file__).resolve().parents[2]
 _ENV_FILES = (str(_ROOT / ".env"), str(_ROOT / "backend" / ".env"))
 
 # NoDecode: stop pydantic-settings JSON-decoding these; we comma-split ourselves
-KeyPoolField = Annotated[List[str], NoDecode]
+KeyPoolField = Annotated[list[str], NoDecode]
 
 
-def _split(v: str | List[str] | None) -> List[str]:
+def _split(v: str | list[str] | None) -> list[str]:
     """'k1,k2, k3' -> ['k1','k2','k3']; '' -> []. Lets each provider hold N keys."""
     if not v:
         return []
@@ -31,12 +31,32 @@ class Settings(BaseSettings):
     # app / infra
     APP_ENV: str = "development"
     SECRET_KEY: str = ""
+    API_TOKEN: str = ""            # bearer token for mutating endpoints; "" = auth off (local dev)
     DATABASE_URL: str = "sqlite:///./dev.db"
     REDIS_URL: str = ""
     ALLOWED_ORIGIN: str = "http://localhost:3000"
     MAX_TOKENS_PER_CALL: int = 2000
     USER_DAILY_TOKEN_BUDGET: int = 200_000
     USER_DAILY_RUN_LIMIT: int = 20
+
+    # tuning knobs (all optional; defaults match previous hardcoded values)
+    CARD_WORKERS: int = 4                  # parallel card builders in the pipeline
+    SCOUT_MAX_WORKERS: int = 10            # parallel source queries
+    SCOUT_PER_QUERY_LIMIT: int = 8         # results per (source, query)
+    SCOUT_MAX_QUERIES_PER_SOURCE: int = 6
+    SCOUT_MAX_LOCATIONS: int = 3           # locations looped by local adapters
+    QUALIFIER_BATCH_SIZE: int = 20         # leads per scoring LLM call
+    QUALIFIER_MAX_CANDIDATES: int = 100    # hard cap on candidates scored
+    QUALIFIER_MIN_FIT: float = 4.0         # drop leads scored below this
+    PRIORITY_MIN_FIT: float = 7.0          # "contact first" threshold
+    LLM_TIMEOUT: float = 60.0
+    LLM_TEMPERATURE: float = 0.3
+    SOURCE_TIMEOUT: float = 20.0           # per-source HTTP timeout
+    FETCH_TIMEOUT: float = 15.0            # SSRF-guarded page fetch timeout
+    MAX_FETCH_BYTES: int = 500_000
+    KEY_COOLDOWN_SECONDS: float = 60.0     # bench time for a failing LLM key
+    RATE_LIMIT_PER_MIN: int = 120          # general per-IP limit
+    RUN_CREATES_PER_MIN: int = 10          # per-IP POST /api/runs limit
 
     # LLM provider key POOLS (multi-key failover)
     XAI_API_KEYS: KeyPoolField = Field(default_factory=list)

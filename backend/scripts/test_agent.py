@@ -24,7 +24,7 @@ def check(name: str, fn):
     try:
         msg = fn() or "ok"
         RESULTS.append((name, True, f"{msg} ({time.time()-t0:.1f}s)"))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         RESULTS.append((name, False, f"{type(e).__name__}: {str(e)[:90]}"))
 
 
@@ -99,8 +99,12 @@ def t_untrusted_wrap():
 
 # ── 5. validators ────────────────────────────────────────────────────────────
 def t_validators():
-    from app.agents.validators import (validate_candidates, validate_enrichment,
-                                       validate_outreach, validate_plan)
+    from app.agents.validators import (
+        validate_candidates,
+        validate_enrichment,
+        validate_outreach,
+        validate_plan,
+    )
     from app.sources.base import Candidate
     plan, _ = validate_plan({"icp": "x", "tiers": [
         {"tier": "A", "sources": ["duckduckgo", "bogus"], "queries": ["q1", ""]},
@@ -113,7 +117,7 @@ def t_validators():
     assert len(cands) == 1, f"candidate gate kept {len(cands)}"
     c, _ = validate_enrichment("bad@@mail", "+92 300 1234567")
     assert c["email"] == "", "email gate broken"
-    d, notes = validate_outreach("this is guaranteed to work" + "x" * 2000)
+    d, _notes = validate_outreach("this is guaranteed to work" + "x" * 2000)
     assert len(d) <= 1800 and "guaranteed" not in d, "outreach gate broken"
     return "V1 plan, V2 candidates, V3 contact, V5 outreach gates all enforce"
 
@@ -138,10 +142,12 @@ def t_db():
     db = SessionLocal()
     try:
         run = Run(status="planning", requirements="{}")
-        db.add(run); db.commit()
+        db.add(run)
+        db.commit()
         got = db.get(Run, run.id)
         assert got and got.status == "planning"
-        db.delete(got); db.commit()
+        db.delete(got)
+        db.commit()
         return "create/read/delete Run"
     finally:
         db.close()
@@ -150,8 +156,8 @@ def t_db():
 # ── 8. API (in-process via TestClient-style ASGI) ───────────────────────────
 def t_api():
     import anyio
-    from httpx import ASGITransport, AsyncClient
     from app.main import app
+    from httpx import ASGITransport, AsyncClient
 
     async def go():
         async with AsyncClient(transport=ASGITransport(app=app),
