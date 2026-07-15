@@ -1,0 +1,31 @@
+# secrets — NEVER commit (vibe rule 1)
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# db / local
+*.db
+*.sqlite3
+dev.db
+
+# node / frontend
+node_modules/
+.next/
+dist/
+build/
+
+# os / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

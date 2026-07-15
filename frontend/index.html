@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Client/Lead Finder</title>
+<style>
+  :root{--bg:#0f1115;--card:#181b22;--line:#2a2f3a;--txt:#e8eaf0;--dim:#9aa3b2;--acc:#4f8cff;--ok:#3fbf6f;--warn:#e0a23c}
+  *{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
+  .wrap{max-width:980px;margin:0 auto;padding:24px}
+  h1{font-size:22px;margin:0 0 4px}.sub{color:var(--dim);margin:0 0 20px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+  label{display:block;font-size:12px;color:var(--dim);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.04em}
+  input,textarea{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:#10131a;color:var(--txt);font:inherit}
+  button{padding:10px 18px;border-radius:8px;border:0;background:var(--acc);color:#fff;font:600 14px/1 inherit;cursor:pointer;margin-top:14px}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
+  button:disabled{opacity:.5;cursor:wait}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .hint{font-size:12px;color:var(--dim);margin-top:3px}
+  /* dropdown */
+  .dd{position:relative}
+  .dd-head{width:100%;text-align:left;padding:10px;border-radius:8px;border:1px solid var(--line);background:#10131a;color:var(--txt);cursor:pointer;margin:0;font:inherit}
+  .dd-head:after{content:"▾";float:right;color:var(--dim)}
+  .dd-menu{display:none;position:absolute;z-index:9;left:0;right:0;margin-top:4px;background:#10131a;border:1px solid var(--line);border-radius:8px;max-height:240px;overflow:auto;padding:6px}
+  .dd.open .dd-menu{display:block}
+  .dd-menu label{display:flex;align-items:center;gap:8px;margin:0;padding:7px 8px;border-radius:6px;text-transform:none;letter-spacing:0;font-size:14px;color:var(--txt);cursor:pointer}
+  .dd-menu label:hover{background:#181b22}.dd-menu input[type=checkbox]{width:auto}
+  .dd-menu .selall{border-bottom:1px solid var(--line);margin-bottom:4px;font-weight:700;color:var(--acc)}
+  .dd-custom{display:flex;gap:6px;padding:6px 8px;border-top:1px solid var(--line);margin-top:4px}
+  .dd-custom input{flex:1;padding:6px}.dd-custom button{margin:0;padding:6px 10px;font-size:13px}
+  .badge{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:700}
+  .score{background:var(--ok);color:#08130c}.rank{background:#252a35;color:var(--dim);margin-right:8px}
+  .tier{background:#252a35;color:var(--acc);margin-left:8px}
+  .first{background:#f0b232;color:#1a1200;margin-left:8px}
+  .panel.priority{border-color:#f0b232;box-shadow:0 0 0 1px #f0b23233}
+  .contact{background:#10131a;border-radius:8px;padding:10px}
+  .contact-email{display:flex;align-items:center;gap:8px;margin-top:4px;font-size:15px}
+  .estat{width:9px;height:9px;border-radius:99px;display:inline-block;flex:none}
+  .estat-valid{background:var(--ok)}.estat-risky{background:var(--warn)}
+  .estat-guessed{background:#7a86ff}.estat-invalid{background:#ff6b6b}.estat-unverified{background:#555}
+  button.mini{margin:0;padding:3px 8px;font-size:11px}
+  .kv-a{display:block;font-size:12px}
+  .log{font:12px/1.6 ui-monospace,Consolas,monospace;color:var(--dim);max-height:200px;overflow:auto;white-space:pre-wrap}
+  .cardT{font-size:16px;font-weight:700;margin:0}
+  .kv{color:var(--dim);font-size:13px;margin:2px 0}
+  .sec{margin-top:10px;border-top:1px dashed var(--line);padding-top:8px}
+  .sec b{font-size:12px;color:var(--acc);text-transform:uppercase;letter-spacing:.04em}
+  ul{margin:6px 0 0 18px;padding:0}li{margin:3px 0}
+  .msg{background:#10131a;border:1px solid var(--line);border-radius:8px;padding:10px;white-space:pre-wrap;font-size:14px;margin-top:6px}
+  .err{color:#ff7a7a}.hide{display:none}
+  .status{font-weight:700;color:var(--warn)}
+  a{color:var(--acc);word-break:break-all}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AI Client/Lead Finder</h1>
+  <p class="sub">requirements → plan (you approve) → multi-source hunt → validated, ranked flash cards</p>
+
+  <div class="panel" id="p-form">
+    <div class="row">
+      <div><label>Service you sell * (pick many / add custom)</label>
+        <div class="dd" id="dd-service"><button type="button" class="dd-head" id="head-service">Pick services…</button><div class="dd-menu" id="menu-service"></div></div></div>
+      <div><label>Target niche * (pick many / add custom)</label>
+        <div class="dd" id="dd-niche"><button type="button" class="dd-head" id="head-niche">Pick niches…</button><div class="dd-menu" id="menu-niche"></div></div></div>
+    </div>
+    <div class="row">
+      <div><label>Location (optional, pick many)</label>
+        <div class="dd" id="dd-location"><button type="button" class="dd-head" id="head-location">Any / Remote…</button><div class="dd-menu" id="menu-location"></div></div></div>
+      <div><label>How many leads</label>
+        <select id="max_leads">
+          <option>5</option><option selected>8</option><option>10</option>
+          <option>15</option><option>20</option><option>25</option>
+        </select></div>
+    </div>
+
+    <label>What to find (pick one or more)</label>
+    <div class="dd" id="dd-types">
+      <button type="button" class="dd-head" id="head-types">Company websites, Local businesses</button>
+      <div class="dd-menu" id="menu-types"></div>
+    </div>
+
+    <label>Sources (optional — leave empty = auto-pick by type)</label>
+    <div class="dd" id="dd-sources">
+      <button type="button" class="dd-head" id="head-sources">Auto (all active sources)</button>
+      <div class="dd-menu" id="menu-sources"></div>
+    </div>
+
+    <label>Notes (optional)</label><textarea id="notes" rows="2" placeholder="anything else the planner should know"></textarea>
+    <button id="btn-start">Build my plan</button>
+  </div>
+
+  <div class="panel hide" id="p-plan">
+    <p class="cardT">Proposed plan <span class="status" id="plan-status"></span></p>
+    <div id="plan-body"></div>
+    <button id="btn-approve">Approve &amp; hunt leads</button>
+    <button class="ghost" id="btn-reject">Reject (edit requirements)</button>
+  </div>
+
+  <div class="panel hide" id="p-progress">
+    <p class="cardT">Run status: <span class="status" id="run-status">…</span></p>
+    <div class="log" id="log"></div>
+  </div>
+
+  <div id="cards"></div>
+</div>
+<script src="/app.js" defer></script>
+</body>
+</html>
