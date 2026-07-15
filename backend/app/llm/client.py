@@ -81,7 +81,14 @@ class LLMClient:
                   max_tokens: Optional[int] = None) -> dict | list:
         raw = self.chat(prompt, system=system + "\nRespond with valid JSON only.",
                         tier=tier, max_tokens=max_tokens, json_mode=True)
-        return extract_json(raw)
+        try:
+            return extract_json(raw)
+        except (json.JSONDecodeError, ValueError):
+            # one strict retry — open models occasionally emit broken JSON
+            raw = self.chat(prompt, system=system + "\nReturn ONLY a valid JSON object/array. "
+                            "No prose, no markdown fences, no trailing commas.",
+                            tier=tier, max_tokens=max_tokens, json_mode=True)
+            return extract_json(raw)
 
     # ── internals ───────────────────────────────────────────────────────────
     def _provider_order(self, want: str) -> list[str]:
@@ -152,15 +159,21 @@ class LLMClient:
 
 
 def extract_json(text: str) -> dict | list:
-    """Tolerant JSON extractor (open models wrap JSON in prose/fences)."""
+    """Tolerant JSON extractor (open models wrap JSON in prose/fences, add trailing commas)."""
     text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        m = re.search(r"[\[{].*[\]}]", text, re.DOTALL)
-        if m:
-            return json.loads(m.group(0))
-        raise
+    for attempt in (text, re.sub(r",\s*([}\]])", r"\1", text)):
+        try:
+            return json.loads(attempt)
+        except json.JSONDecodeError:
+            pass
+    m = re.search(r"[\[{].*[\]}]", text, re.DOTALL)
+    if m:
+        blob = m.group(0)
+        try:
+            return json.loads(blob)
+        except json.JSONDecodeError:
+            return json.loads(re.sub(r",\s*([}\]])", r"\1", blob))
+    raise json.JSONDecodeError("no JSON found in model output", text[:80], 0)
 
 
 _client: Optional[LLMClient] = None

@@ -65,9 +65,36 @@ def test_extract_json_wrapped_in_prose():
     assert extract_json('Sure! Here is the data: [{"i": 0}] hope it helps') == [{"i": 0}]
 
 
+def test_extract_json_trailing_comma():
+    assert extract_json('{"a": 1, "b": [1, 2,],}') == {"a": 1, "b": [1, 2]}
+
+
 def test_extract_json_garbage_raises():
     with pytest.raises(Exception):
         extract_json("no json here at all")
+
+
+# ── source adapter error reporting ──────────────────────────────────────────
+
+def test_adapter_records_last_error_and_returns_empty():
+    from app.sources.base import SourceAdapter
+
+    class Boom(SourceAdapter):
+        name = "boom"
+
+        def _search(self, query, *, location, limit):
+            raise ValueError("bad payload")
+
+    a = Boom()
+    assert a.search("x") == []
+    assert a.last_error == "ValueError"
+
+
+def test_outreach_placeholders_stripped():
+    from app.agents.validators import validate_outreach
+    msg, notes = validate_outreach("Hi [Name], I saw {{company}} is growing.")
+    assert "[Name]" not in msg and "{{company}}" not in msg
+    assert any("placeholder" in n for n in notes)
 
 
 # ── contacts helpers ────────────────────────────────────────────────────────

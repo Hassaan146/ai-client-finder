@@ -26,7 +26,10 @@ Produce JSON:
                  "why_it_matters": "stakeholder value, 1 sentence"}}],
  "confidence": "high|medium|low"
 }}
-Max 3 problems, max 3 solutions. Evidence-grounded only."""
+Max 3 problems, max 3 solutions. Evidence-grounded only — every problem must cite a
+specific fact from the evidence above (quote or paraphrase it in "evidence"); if you
+cannot ground a claim, leave it out and lower "confidence" instead. No filler that
+could apply to any business."""
 
 
 def analyze(cand: Candidate, enrichment: dict, service: str) -> dict:

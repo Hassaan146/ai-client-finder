@@ -101,6 +101,9 @@ def validate_analysis(analysis: dict, evidence: str) -> Tuple[dict, List[str]]:
 BANNED_OUTREACH = ("guaranteed", "100% success", "no risk at all")
 
 
+PLACEHOLDER_RE = re.compile(r"\[(?:name|first name|company|your name|contact)[^\]]*\]|\{\{[^}]*\}\}", re.I)
+
+
 def validate_outreach(draft: str) -> Tuple[str, List[str]]:
     notes: List[str] = []
     low = draft.lower()
@@ -108,6 +111,10 @@ def validate_outreach(draft: str) -> Tuple[str, List[str]]:
         if b in low:
             notes.append(f"outreach contained banned claim: '{b}'")
             draft = re.sub(re.escape(b), "strong", draft, flags=re.I)
+    if PLACEHOLDER_RE.search(draft):
+        draft = re.sub(r" ?" + PLACEHOLDER_RE.pattern, "", draft, flags=re.I)
+        draft = re.sub(r"[ \t]{2,}", " ", draft)
+        notes.append("removed unfilled template placeholders from outreach")
     if len(draft) > 1800:
         draft = draft[:1800]
         notes.append("outreach truncated to sane length")

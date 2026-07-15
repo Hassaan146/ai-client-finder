@@ -99,9 +99,11 @@ def execute_run(run_id: int) -> None:
         source_names = _resolve_sources(req)
         _log(db, run, f"scout: hunting across {len(source_names)} sources: {', '.join(sorted(source_names))}")
         db.commit()
-        raw, bd = scout.run_scout(plan, locations, source_names)
+        raw, bd, src_errors = scout.run_scout(plan, locations, source_names)
         if bd:
             _log(db, run, "scout results by source: " + ", ".join(f"{k}={v}" for k, v in sorted(bd.items(), key=lambda x: -x[1])))
+        if src_errors:
+            _log(db, run, "sources that failed to respond: " + ", ".join(f"{k} ({v})" for k, v in sorted(src_errors.items())))
         cands, notes = validators.validate_candidates(raw)
         for n in notes:
             _log(db, run, f"V2(candidates): {n}")

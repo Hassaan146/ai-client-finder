@@ -31,9 +31,9 @@ def _plan_queries(plan: dict) -> List[str]:
 
 
 def run_scout(plan: dict, locations: Iterable[str] | str | None = None,
-              source_names: Iterable[str] | None = None) -> tuple[List[Candidate], dict]:
+              source_names: Iterable[str] | None = None) -> tuple[List[Candidate], dict, dict]:
     """locations: list of cities (local adapters loop over them). source_names: explicit adapters.
-    Returns (candidates, per-source result counts)."""
+    Returns (candidates, per-source result counts incl. zeros, per-source errors)."""
     if isinstance(locations, str):
         locations = [locations] if locations else []
     locs = [l for l in (locations or []) if l][:3]
@@ -55,7 +55,7 @@ def run_scout(plan: dict, locations: Iterable[str] | str | None = None,
                 jobs.append((a, q, ""))
 
     out: List[Candidate] = []
-    per_source: Counter = Counter()
+    per_source: Counter = Counter({name: 0 for name in chosen})  # zeros visible too
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         futs = {ex.submit(a.search, q, location=loc, limit=PER_QUERY_LIMIT): a.name
                 for a, q, loc in jobs}
@@ -66,4 +66,6 @@ def run_scout(plan: dict, locations: Iterable[str] | str | None = None,
                 per_source[futs[f]] += len(res)
             except Exception:  # noqa: BLE001
                 pass
-    return out, dict(per_source)
+    errors = {name: a.last_error for name, a in chosen.items()
+              if per_source[name] == 0 and a.last_error}
+    return out, dict(per_source), errors
